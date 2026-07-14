@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据迁移 - 曼曼心情日记</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #ffeaa7, #fab1a0, #fd79a8);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .card {
+            background: rgba(255,255,255,0.97);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            text-align: center;
+        }
+        h1 { color: #c44569; margin-bottom: 10px; font-size: 1.6em; }
+        .subtitle { color: #636e72; margin-bottom: 25px; font-size: 0.95em; }
+        .info { background: #fff3f6; border-radius: 12px; padding: 15px; margin-bottom: 20px; text-align: left; }
+        .info-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ffe0e8; }
+        .info-item:last-child { border-bottom: none; }
+        .label { color: #636e72; }
+        .value { color: #c44569; font-weight: bold; }
+        .record-list { max-height: 300px; overflow-y: auto; margin: 15px 0; text-align: left; }
+        .record-item { 
+            padding: 10px 12px; 
+            margin: 6px 0; 
+            background: #f8f9fa; 
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .record-emoji { font-size: 1.4em; }
+        .record-date { flex:1; color:#2d3436; }
+        .record-status { font-size: 0.85em; }
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #ff6b9d, #c44569);
+            color: white;
+            border: none;
+            padding: 14px 36px;
+            border-radius: 50px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 10px 30px rgba(255,107,157,0.3);
+            margin: 5px;
+        }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 15px 40px rgba(255,107,157,0.4); }
+        .btn:disabled { background: #b2bec3; box-shadow: none; cursor: not-allowed; transform: none; }
+        .btn-secondary {
+            background: linear-gradient(135deg, #74b9ff, #0984e3);
+            box-shadow: 0 10px 30px rgba(116,185,255,0.3);
+        }
+        .progress { 
+            width: 100%; height: 6px; background: #dfe6e9; border-radius: 3px; margin: 20px 0; overflow: hidden; display: none;
+        }
+        .progress-bar {
+            height: 100%; background: linear-gradient(135deg, #ff6b9d, #c44569); border-radius: 3px;
+            width: 0%; transition: width 0.3s;
+        }
+        .result { margin-top: 15px; padding: 12px; border-radius: 10px; display: none; }
+        .result.success { background: #dff9fb; color: #0a3d62; }
+        .result.error { background: #ffe0e0; color: #c0392b; }
+        .warning { background: #ffeaa7; border-radius: 10px; padding: 12px; margin: 15px 0; font-size: 0.9em; color: #636e72; }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .spinner {
+            display: inline-block; width: 16px; height: 16px;
+            border: 2px solid transparent; border-top: 2px solid white;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+            margin-right: 8px; vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h1>🔄 数据迁移</h1>
+    <p class="subtitle">将旧版本地数据同步到云端服务器</p>
+
+    <div id="infoSection">
+        <div class="info" id="dataInfo">
+            <div class="info-item"><span class="label">旧数据记录数</span><span class="value" id="recordCount">检测中...</span></div>
+            <div class="info-item"><span class="label">目标服务器</span><span class="value">http://124.221.201.20</span></div>
+        </div>
+
+        <div id="recordPreview" style="display:none;">
+            <p style="color:#636e72; margin-bottom:10px;">📋 待迁移的记录：</p>
+            <div class="record-list" id="recordList"></div>
+        </div>
+
+        <div class="warning" id="noDataWarning" style="display:none;">
+            ⚠️ 未检测到本地数据。请确认：<br>
+            1. 你在<b>同一个浏览器</b>中打开了旧网站<br>
+            2. 旧数据是在这个设备上记录的
+        </div>
+
+        <button class="btn" id="migrateBtn" disabled onclick="startMigration()">
+            开始迁移到云端
+        </button>
+    </div>
+
+    <div class="progress" id="progressBar">
+        <div class="progress-bar" id="progressFill"></div>
+    </div>
+
+    <div class="result" id="resultBox"></div>
+
+    <button class="btn btn-secondary" id="retryBtn" style="display:none;" onclick="location.reload()">
+        重新检测
+    </button>
+</div>
+
+<script>
+const API_BASE = 'http://124.221.201.20';
+let localRecords = [];
+
+// 检测本地数据
+function detectData() {
+    try {
+        const raw = localStorage.getItem('moodRecords');
+        if (!raw) {
+            document.getElementById('noDataWarning').style.display = 'block';
+            document.getElementById('recordCount').textContent = '无数据';
+            return;
+        }
+        localRecords = JSON.parse(raw);
+        
+        if (!Array.isArray(localRecords) || localRecords.length === 0) {
+            document.getElementById('noDataWarning').style.display = 'block';
+            document.getElementById('recordCount').textContent = '空数据';
+            return;
+        }
+
+        document.getElementById('recordCount').textContent = localRecords.length + ' 条';
+        document.getElementById('migrateBtn').disabled = false;
+
+        // 显示预览
+        document.getElementById('recordPreview').style.display = 'block';
+        const listEl = document.getElementById('recordList');
+        const sorted = [...localRecords].sort((a,b) => b.date.localeCompare(a.date));
+        listEl.innerHTML = sorted.map(r => `
+            <div class="record-item">
+                <span class="record-emoji">${r.emoji || '📝'}</span>
+                <span class="record-date">${r.date}</span>
+                <span class="record-status">${r.activity || '无内容'}</span>
+            </div>
+        `).join('');
+
+    } catch(e) {
+        document.getElementById('recordCount').textContent = '数据损坏';
+        document.getElementById('noDataWarning').style.display = 'block';
+    }
+}
+
+// 开始迁移
+async function startMigration() {
+    const btn = document.getElementById('migrateBtn');
+    const progress = document.getElementById('progressBar');
+    const fill = document.getElementById('progressFill');
+    const resultBox = document.getElementById('resultBox');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>迁移中...';
+    progress.style.display = 'block';
+    resultBox.style.display = 'none';
+
+    let success = 0, fail = 0;
+    const total = localRecords.length;
+
+    for (let i = 0; i < total; i++) {
+        const r = localRecords[i];
+        try {
+            const resp = await fetch(`${API_BASE}/api/records`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    date: r.date,
+                    mood: r.mood,
+                    emoji: r.emoji,
+                    mood_label: r.mood_label || '',
+                    activity: r.activity || ''
+                })
+            });
+            if (resp.ok) {
+                success++;
+            } else {
+                fail++;
+            }
+        } catch(e) {
+            fail++;
+            console.error(`迁移失败: ${r.date}`, e);
+        }
+        
+        fill.style.width = ((i+1)/total*100) + '%';
+    }
+
+    // 显示结果
+    resultBox.style.display = 'block';
+    if (fail === 0) {
+        resultBox.className = 'result success';
+        resultBox.innerHTML = `✅ 迁移完成！成功同步 <b>${success}</b> 条记录到云端~<br><br>现在去 <a href="http://124.221.201.20" style="color:#0984e3;">新网站</a> 看看吧！`;
+    } else {
+        resultBox.className = 'result error';
+        resultBox.innerHTML = `⚠️ 迁移完成：成功 <b>${success}</b> 条，失败 <b>${fail}</b> 条<br>失败的记录请稍后重试`;
+    }
+
+    btn.style.display = 'none';
+    document.getElementById('retryBtn').style.display = 'inline-block';
+}
+
+// 初始化
+detectData();
+</script>
+</body>
+</html>
